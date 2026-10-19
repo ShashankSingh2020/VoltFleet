@@ -6,19 +6,14 @@ from rest_framework.permissions import IsAuthenticated
 from .models import TelemetryRecord
 from .serializers import TelemetryRecordSerializer, TelemetryIngestBatchSerializer
 from .services import TelemetryIngestionService
+from apps.authentication.utils import get_active_user_organization
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_tenant_org(request, serializer):
     user = request.user
-    org = None
-    if hasattr(user, "memberships"):
-        m = user.memberships.select_related("organization").first()
-        if m:
-            org = m.organization
-    if not org and hasattr(user, "organization"):
-        org = user.organization
+    org = get_active_user_organization(user)
     if not org and user.is_superuser:
         from apps.vehicles.models import Vehicle
         data = serializer.validated_data
@@ -47,7 +42,7 @@ class TelemetryBatchIngestView(APIView):
         org = _resolve_tenant_org(request, serializer)
         if not org and not request.user.is_superuser:
             return Response(
-                {"error": "User does not belong to any organization."},
+                {"error": "User does not belong to any active organization."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -76,7 +71,7 @@ class TelemetrySingleIngestView(APIView):
         org = _resolve_tenant_org(request, serializer)
         if not org and not request.user.is_superuser:
             return Response(
-                {"error": "User does not belong to any organization."},
+                {"error": "User does not belong to any active organization."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -104,16 +99,10 @@ class TelemetryHistoryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, 
         if not user or not user.is_authenticated:
             return TelemetryRecord.objects.none()
 
-        org = None
-        if hasattr(user, "memberships"):
-            m = user.memberships.select_related("organization").first()
-            if m:
-                org = m.organization
-        if not org and hasattr(user, "organization"):
-            org = user.organization
-
         if user.is_superuser:
             return TelemetryRecord.objects.select_related("vehicle").all().order_by("-timestamp")
+
+        org = get_active_user_organization(user)
         if not org:
             return TelemetryRecord.objects.none()
 

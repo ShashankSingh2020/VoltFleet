@@ -9,7 +9,7 @@ from apps.telemetry.services import TelemetryIngestionService
 
 
 @pytest.mark.django_db
-class TestTenantIsolation:
+class TestTenantIsolationAndValidation:
     @pytest.fixture(autouse=True)
     def setup_tenants(self):
         self.org_a = Organization.objects.create(name="Apex Fleet", slug="apex-fleet")
@@ -121,3 +121,54 @@ class TestTenantIsolation:
         assert rec.soc_percent == Decimal("80.0")
         assert rec.battery_temperature_celsius is None
         assert rec.latitude is None
+
+    def test_ingestion_api_rejects_out_of_bounds_telemetry(self):
+        # Invalid: SOC > 100
+        res = self.client_a.post(
+            "/api/v1/telemetry/ingest/batch/",
+            {
+                "events": [
+                    {
+                        "vehicle_id": str(self.vehicle_a.id),
+                        "timestamp": timezone.now().isoformat(),
+                        "soc_percent": "105.00",
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert res.status_code == 400
+
+        # Invalid: Negative cumulative energy
+        res2 = self.client_a.post(
+            "/api/v1/telemetry/ingest/batch/",
+            {
+                "events": [
+                    {
+                        "vehicle_id": str(self.vehicle_a.id),
+                        "timestamp": timezone.now().isoformat(),
+                        "soc_percent": "80.00",
+                        "cumulative_energy_kwh": "-5.00",
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert res2.status_code == 400
+
+        # Invalid: Latitude > 90
+        res3 = self.client_a.post(
+            "/api/v1/telemetry/ingest/batch/",
+            {
+                "events": [
+                    {
+                        "vehicle_id": str(self.vehicle_a.id),
+                        "timestamp": timezone.now().isoformat(),
+                        "soc_percent": "80.00",
+                        "latitude": "95.000000",
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert res3.status_code == 400

@@ -6,8 +6,8 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
-    DJANGO_DEBUG=(bool, False),
-    DJANGO_ALLOWED_HOSTS=(list, ["127.0.0.1", "localhost"]),
+    DJANGO_DEBUG=(bool, False),  # Production-safe default
+    DJANGO_ALLOWED_HOSTS=(list, ["127.0.0.1", "localhost", "0.0.0.0"]),
 )
 
 ROOT_DIR = BASE_DIR.parent
@@ -16,7 +16,7 @@ if ENV_FILE.exists():
     environ.Env.read_env(str(ENV_FILE))
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="insecure-placeholder-key-for-dev")
-DEBUG = env("DJANGO_DEBUG", default=True)
+DEBUG = env("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS", default=["127.0.0.1", "localhost", "0.0.0.0"])
 
 DJANGO_APPS = [
@@ -85,7 +85,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "voltfleet.wsgi.application"
 ASGI_APPLICATION = "voltfleet.asgi.application"
 
-# Database Configuration with seamless .env support
+# Database Configuration: parses DATABASE_URL or constructs from split DB_*
 db_url = env("DATABASE_URL", default=None)
 if not db_url:
     db_name = env("DB_NAME", default="voltfleet")
@@ -99,10 +99,13 @@ DATABASES = {
     "default": env.db_url_config(db_url)
 }
 
+# Redis configuration
+redis_url = env("REDIS_URL", default="redis://127.0.0.1:6379")
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": env("REDIS_URL", default="redis://127.0.0.1:6379/1"),
+        "LOCATION": f"{redis_url}/1",
     }
 }
 
@@ -110,7 +113,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [env("REDIS_URL", default="redis://127.0.0.1:6379/2")],
+            "hosts": [f"{redis_url}/2"],
         },
     },
 }
@@ -131,7 +134,6 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Secure CORS
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",
@@ -143,7 +145,6 @@ CORS_ALLOWED_ORIGINS = env.list(
 )
 CORS_ALLOW_CREDENTIALS = True
 
-# REST Framework, JWT & Rate Throttling
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -164,7 +165,7 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Reduced from 12h
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
@@ -175,9 +176,8 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
 }
 
-# Celery Configuration & Beat Schedule
-CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://127.0.0.1:6379/0")
-CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://127.0.0.1:6379/0")
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=f"{redis_url}/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=f"{redis_url}/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -190,6 +190,5 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-# AI Settings
 GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
 GEMINI_MODEL_NAME = env("GEMINI_MODEL_NAME", default="gemini-2.5-flash")
