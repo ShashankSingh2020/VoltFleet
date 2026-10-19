@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: voltfleet_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: voltfleet_db
+      POSTGRES_USER: voltfleet_user
+      POSTGRES_PASSWORD: voltfleet_secure_password
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: voltfleet_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

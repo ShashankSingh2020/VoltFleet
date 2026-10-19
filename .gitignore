@@ -1,0 +1,43 @@
+﻿# Python & Django
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+.env
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Celery & Testing
+.pytest_cache/
+.coverage
+htmlcov/
+celerybeat-schedule
+celerybeat.pid
+
+# Node & Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+.env
+*.env
+backend/.env
+frontend/.env
