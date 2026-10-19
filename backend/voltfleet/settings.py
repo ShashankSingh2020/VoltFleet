@@ -20,7 +20,7 @@ DEBUG = env("DJANGO_DEBUG", default=True)
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS", default=["127.0.0.1", "localhost", "0.0.0.0"])
 
 DJANGO_APPS = [
-    "daphne",  # Must be first for ASGI/WebSockets
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -85,12 +85,20 @@ TEMPLATES = [
 WSGI_APPLICATION = "voltfleet.wsgi.application"
 ASGI_APPLICATION = "voltfleet.asgi.application"
 
-# Database
+# Database Configuration with seamless .env support
+db_url = env("DATABASE_URL", default=None)
+if not db_url:
+    db_name = env("DB_NAME", default="voltfleet")
+    db_user = env("DB_USER", default="postgres")
+    db_password = env("DB_PASSWORD", default="postgres")
+    db_host = env("DB_HOST", default="127.0.0.1")
+    db_port = env("DB_PORT", default="5432")
+    db_url = f"postgres://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+
 DATABASES = {
-    "default": env.db("DATABASE_URL", default="postgres://postgres:postgres@127.0.0.1:5432/voltfleet")
+    "default": env.db_url_config(db_url)
 }
 
-# Native Django 5.x Redis Cache Backend
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -98,7 +106,6 @@ CACHES = {
     }
 }
 
-# Redis Channel Layers for Real-time WebSockets
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
@@ -122,37 +129,53 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# CORS configuration for React frontend
-CORS_ALLOW_ALL_ORIGINS = True
+# Secure CORS
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+    ],
+)
 CORS_ALLOW_CREDENTIALS = True
 
-# REST Framework & JWT
+# REST Framework, JWT & Rate Throttling
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/minute",
+        "user": "1000/minute",
+        "ai_chat": "15/minute",
+    },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Reduced from 12h
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "VoltFleet EV Intelligence & Smart Charging API",
-    "DESCRIPTION": "Multi-tenant EV Fleet Operations, Telemetry Ingestion, and AI Diagnostics.",
+    "TITLE": "VoltFleet EV Intelligence API",
+    "DESCRIPTION": "Multi-tenant EV Telemetry, Smart Charging, and AI Assistant.",
     "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
 }
 
-# Celery Configuration
+# Celery Configuration & Beat Schedule
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://127.0.0.1:6379/0")
 CELERY_ACCEPT_CONTENT = ["json"]
@@ -160,6 +183,13 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
 
-# Gemini AI Provider
+CELERY_BEAT_SCHEDULE = {
+    "periodic-anomaly-scan-every-60s": {
+        "task": "apps.anomalies.tasks.scan_all_organizations_anomalies",
+        "schedule": 60.0,
+    },
+}
+
+# AI Settings
 GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
 GEMINI_MODEL_NAME = env("GEMINI_MODEL_NAME", default="gemini-2.5-flash")

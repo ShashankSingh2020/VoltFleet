@@ -1,89 +1,122 @@
-from rest_framework import status, views, permissions, viewsets
+﻿import logging
+from rest_framework import viewsets, mixins, status
+from rest_framework.views import APIView
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema
-from apps.authentication.permissions import IsFleetOperator
-from apps.vehicles.views import TenantScopedQuerysetMixin
+from rest_framework.permissions import IsAuthenticated
 from .models import TelemetryRecord
-from .serializers import (
-    TelemetryIngestInputSerializer,
-    TelemetryBatchIngestSerializer,
-    TelemetryEventSerializer,
-)
+from .serializers import TelemetryRecordSerializer, TelemetryIngestBatchSerializer
 from .services import TelemetryIngestionService
 
+logger = logging.getLogger(__name__)
 
-class TelemetrySingleIngestView(views.APIView):
-    """
-    Ingests a single EV telemetry packet.
-    """
-    permission_classes = [permissions.IsAuthenticated, IsFleetOperator]
 
-    @extend_schema(request=TelemetryIngestInputSerializer, responses={201: dict})
+def _resolve_tenant_org(request, serializer):
+    user = request.user
+    org = None
+    if hasattr(user, "memberships"):
+        m = user.memberships.select_related("organization").first()
+        if m:
+            org = m.organization
+    if not org and hasattr(user, "organization"):
+        org = user.organization
+    if not org and user.is_superuser:
+        from apps.vehicles.models import Vehicle
+        data = serializer.validated_data
+        first_item = data[0] if isinstance(data, list) and data else data
+        if isinstance(first_item, dict):
+            v_id = first_item.get("vehicle_id")
+            veh = Vehicle.objects.filter(id=v_id).first()
+            if veh:
+                org = veh.organization
+    return org
+
+
+class TelemetryBatchIngestView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
-        serializer = TelemetryIngestInputSerializer(data=request.data)
+        raw_data = request.data
+        if isinstance(raw_data, dict) and "events" in raw_data:
+            raw_data = raw_data["events"]
+        elif not isinstance(raw_data, list):
+            raw_data = [raw_data]
+
+        serializer = TelemetryIngestBatchSerializer(data=raw_data, many=True)
         serializer.is_valid(raise_exception=True)
 
-        membership = request.user.memberships.filter(is_active=True).first()
-        org = membership.organization if membership else None
+        org = _resolve_tenant_org(request, serializer)
         if not org and not request.user.is_superuser:
-            return Response({"detail": "User has no active organization."}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"error": "User does not belong to any organization."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        accepted, ignored = TelemetryIngestionService.ingest_batch(
-            [serializer.validated_data], organization=org
+        created, deduped = TelemetryIngestionService.ingest_batch(
+            serializer.validated_data, organization=org
         )
-        return Response(
-            {"status": "processed", "accepted": accepted, "ignored_duplicates": ignored},
-            status=status.HTTP_201_CREATED if accepted > 0 else status.HTTP_200_OK
-        )
-
-
-class TelemetryBatchIngestView(views.APIView):
-    """
-    Ingests a bulk array of up to 500 telemetry events with automatic deduplication.
-    """
-    permission_classes = [permissions.IsAuthenticated, IsFleetOperator]
-
-    @extend_schema(request=TelemetryBatchIngestSerializer, responses={200: dict})
-    def post(self, request):
-        serializer = TelemetryBatchIngestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        membership = request.user.memberships.filter(is_active=True).first()
-        org = membership.organization if membership else None
-        if not org and not request.user.is_superuser:
-            return Response({"detail": "User has no active organization."}, status=status.HTTP_403_FORBIDDEN)
-
-        events = serializer.validated_data["events"]
-        accepted, ignored = TelemetryIngestionService.ingest_batch(events, organization=org)
-
         return Response(
             {
                 "status": "success",
-                "total_received": len(events),
-                "accepted": accepted,
-                "ignored_duplicates": ignored,
+                "accepted": created,
+                "created": created,
+                "ignored_duplicates": deduped,
+                "deduplicated": deduped,
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
 
-class TelemetryHistoryViewSet(TenantScopedQuerysetMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    Read-only viewset for inspecting time-indexed telemetry logs per vehicle.
-    """
-    queryset = TelemetryRecord.objects.select_related("vehicle").all()
-    serializer_class = TelemetryEventSerializer
-    permission_classes = [permissions.IsAuthenticated]
+class TelemetrySingleIngestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = TelemetryIngestBatchSerializer(data=[request.data], many=True)
+        serializer.is_valid(raise_exception=True)
+
+        org = _resolve_tenant_org(request, serializer)
+        if not org and not request.user.is_superuser:
+            return Response(
+                {"error": "User does not belong to any organization."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created, deduped = TelemetryIngestionService.ingest_batch(
+            serializer.validated_data, organization=org
+        )
+        return Response(
+            {
+                "status": "success",
+                "accepted": created,
+                "created": created,
+                "ignored_duplicates": deduped,
+                "deduplicated": deduped,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TelemetryHistoryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = TelemetryRecordSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        vehicle_id = self.request.query_params.get("vehicle_id")
-        if vehicle_id:
-            queryset = queryset.filter(vehicle_id=vehicle_id)
-        start_time = self.request.query_params.get("start_time")
-        end_time = self.request.query_params.get("end_time")
-        if start_time:
-            queryset = queryset.filter(timestamp__gte=start_time)
-        if end_time:
-            queryset = queryset.filter(timestamp__lte=end_time)
-        return queryset
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return TelemetryRecord.objects.none()
+
+        org = None
+        if hasattr(user, "memberships"):
+            m = user.memberships.select_related("organization").first()
+            if m:
+                org = m.organization
+        if not org and hasattr(user, "organization"):
+            org = user.organization
+
+        if user.is_superuser:
+            return TelemetryRecord.objects.select_related("vehicle").all().order_by("-timestamp")
+        if not org:
+            return TelemetryRecord.objects.none()
+
+        return TelemetryRecord.objects.filter(
+            vehicle__organization=org
+        ).select_related("vehicle").order_by("-timestamp")
