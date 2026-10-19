@@ -1,252 +1,190 @@
-# ⚡ VoltFleet — EV Fleet Intelligence & Smart Charging Platform
+<div align="center">
 
-A multi-tenant backend and dashboard for operating electric-vehicle fleets. VoltFleet ingests vehicle telemetry, detects battery and data-quality anomalies, schedules charging around time-of-use electricity tariffs, and lets operators ask questions about their fleet in plain English through an AI assistant.
+# ⚡ VoltFleet
+### EV Fleet Intelligence & Smart Charging Platform
 
-![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
+**A multi-tenant platform for fleet telemetry, battery anomaly detection, charging-cost optimization, and AI-assisted fleet operations.**
+
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-5.x-092E20?logo=django&logoColor=white)
-![DRF](https://img.shields.io/badge/DRF-3.15-A30000)
+![DRF](https://img.shields.io/badge/Django_REST_Framework-3.15%2B-A30000)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
-![Celery](https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-5-37814A?logo=celery&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
+![License](https://img.shields.io/badge/Status-Portfolio_Project-orange)
+
+[Features](#-key-features) · [Architecture](#-architecture) · [API](#-api-overview) · [Run Locally](#-run-locally) · [Tests](#-testing)
+
+</div>
 
 ---
 
-## Table of Contents
+## 🚀 Overview
 
-1. [Why this project](#why-this-project)
-2. [Features](#features)
-3. [Architecture](#architecture)
-4. [Tech stack](#tech-stack)
-5. [Data model](#data-model)
-6. [How the core engines work](#how-the-core-engines-work)
-7. [API reference](#api-reference)
-8. [Getting started](#getting-started)
-9. [Configuration](#configuration)
-10. [Running tests](#running-tests)
-11. [Project structure](#project-structure)
-12. [Known limitations & roadmap](#known-limitations--roadmap)
-13. [Author](#author)
+VoltFleet is a full-stack EV fleet operations project designed around a practical question:
 
----
+> **How can a fleet operator monitor vehicle health, identify suspicious telemetry, and schedule charging at a lower estimated electricity cost—without mixing data between organizations?**
 
-## Why this project
+The platform combines a Django REST API, PostgreSQL, Redis-backed background processing, real-time telemetry updates, a deterministic charging scheduler, and an optional Gemini-powered assistant. A React dashboard brings the main workflows together.
 
-Fleet operators running electric vans and trucks face three recurring problems:
+It is built as a **portfolio and learning project**. Telemetry is simulated, the charging engine is a heuristic rather than a mathematical global optimizer, and the AI assistant is an explanatory layer—not an autonomous control system.
 
-- **Visibility** — where is each vehicle, what is its battery state, and is its data still arriving?
-- **Safety & reliability** — which vehicles show dangerous battery temperatures or abnormal energy loss?
-- **Cost** — how do you charge every vehicle before its departure deadline while paying the least for electricity?
+## ✨ Key Features
 
-VoltFleet addresses all three in one platform, with strict per-organization data isolation so several companies can share a single deployment.
+### 🏢 Multi-tenant identity and access
+- Email-based custom user model with JWT access/refresh tokens.
+- Organization memberships and role-aware permissions.
+- Organization-scoped API querysets for fleet data.
+- Audit-log model for recording security-relevant actions.
 
----
+### 🚙 Fleet and vehicle management
+- Manage fleets, vehicles, depots, chargers, and vehicle specifications.
+- Track battery state of charge (SOC), odometer, vehicle status, and departure targets.
+- Estimate remaining driving range from SOC, usable battery capacity, and rated efficiency.
+- Search, ordering, and paginated list endpoints.
 
-## Features
+### 📡 Telemetry ingestion and live updates
+- Single-event and batch ingestion endpoints.
+- Request-level duplicate filtering and a database uniqueness constraint on `(vehicle, timestamp)`.
+- Reconcile vehicle state from accepted readings.
+- Optional Celery processing for background ingestion.
+- Django Channels / Redis WebSocket events for dashboard updates.
+- Management commands for generating realistic demo fleet activity.
 
-### 🏢 Multi-tenant access control
-- Custom email-based `User` model with **JWT authentication** (access + refresh tokens via SimpleJWT).
-- `Organization` → `Membership` structure with four roles: **Platform Admin, Org Admin, Fleet Operator, Analyst**.
-- Reusable `TenantScopedQuerysetMixin` that restricts every queryset to the caller's organization.
-- Role-based DRF permission classes (`IsPlatformAdmin`, `IsOrgAdmin`, `IsFleetOperator`).
-- `AuditLog` model for security-relevant actions.
+### 📊 Fleet analytics
+- Fleet size and status breakdown.
+- Distance, energy, efficiency, and average-SOC summaries.
+- Optional time-window filtering and per-vehicle analytics.
 
-### 🚗 Fleet & vehicle management
-- Fleets (depots), a global OEM **vehicle specification catalog** (battery capacity, AC/DC charge limits, rated efficiency) and vehicles with live state.
-- Per-vehicle **departure deadline and target state-of-charge**, which drive the charging optimizer.
-- Computed **estimated range** from SOC, battery size and efficiency.
-- Search, ordering and pagination on all list endpoints.
+### 🔋 Smart charging planner
+- Prioritizes vehicles by departure deadline and current SOC.
+- Calculates energy required to reach each target SOC.
+- Evaluates compatible chargers and 15-minute schedule slots.
+- Estimates charging cost from time-of-use tariff periods, including overnight windows.
+- Stores plans and reports vehicles that could not be scheduled.
 
-### 📡 Telemetry ingestion
-- Single-event and **batch ingestion (up to 500 events/request)**.
-- Idempotent writes: a `UNIQUE(vehicle, timestamp)` constraint plus in-batch de-duplication.
-- Vehicle live state (SOC, odometer) is reconciled with the newest telemetry inside a transaction.
-- Optional **asynchronous ingestion through Celery** with retry and back-off.
-- **Real-time WebSocket broadcast** of every accepted reading (Django Channels + Redis) for the live map.
-- Management command to **simulate driving and charging cycles** for demos.
+**Algorithm note:** the scheduler is a deterministic greedy heuristic. It is explainable and useful for a portfolio demo, but it does not guarantee a globally optimal schedule or model every real-world grid constraint.
 
-### 📊 Analytics
-- Fleet summary: active vehicles, status breakdown, distance travelled, energy consumed, average efficiency (kWh/100 km) and average SOC, with optional time-window filtering.
-- Per-vehicle efficiency analytics.
+### 🚨 Rule-based anomaly detection
+- **High battery temperature:** above 45 °C.
+- **Sudden SOC drop:** more than 5 percentage points over a short interval with little odometer movement.
+- **Stale telemetry:** no recent reading for more than 120 minutes.
+- Anomaly lifecycle: open, acknowledged, resolved, or marked false positive.
+- Cooldown-based suppression of repeated alerts for an ongoing condition.
 
-### 🔋 Smart charging optimizer
-- Deterministic **earliest-deadline-first, time-of-use-aware scheduler** (see [below](#smart-charging-optimizer)).
-- Persists each run as a `ChargingPlan` with per-vehicle `ChargingPlanItem`s, total energy and estimated cost.
-- Reports vehicles that could **not** be scheduled and why.
+These are configurable demo thresholds, not a substitute for OEM battery safety logic.
 
-### 🚨 Anomaly detection
-- Rule-based engine that scans each organization for battery over-temperature, suspicious SOC drops and silent vehicles.
-- **Cool-down de-duplication** so a continuing condition does not spam alerts.
-- Workflow: `OPEN → ACKNOWLEDGED → RESOLVED / FALSE_POSITIVE`, with a resolution log.
-- Runs on demand (`POST /anomalies/scan/`) or periodically through Celery.
+### 🤖 AI fleet assistant
+- Ask natural-language questions about the fleet snapshot.
+- Request explanations of anomalies and charging plans.
+- Gemini provider with schema validation for structured anomaly explanations.
+- Mock provider fallback when no API key is configured.
 
-### 🤖 AI assistant (provider-based)
-- Natural-language fleet Q&A, **anomaly explanations** and **charging-plan explanations**.
-- Provider abstraction (`BaseAIProvider`) with a **Google Gemini** implementation and a **mock provider** so the app works with no API key.
-- Answers are grounded in a JSON snapshot of the organization's own data; the prompt instructs the model not to invent figures.
-- Anomaly explanations are validated against a **Pydantic schema** before being returned.
+The assistant uses prepared fleet context; it should be described as **context-grounded AI assistance**, not a fully autonomous agent.
 
-### 🖥️ React dashboard
-- Tabs for Overview, Vehicles, Charging, Anomalies, AI Chat and a Leaflet **live fleet map**.
-- Built with React 19, Vite and Tailwind CSS.
-
-### 📚 Developer experience
-- Auto-generated **OpenAPI schema and Swagger UI** (drf-spectacular).
-- Health-check endpoint, Docker Compose for Postgres and Redis, and a `seed_fleet_demo` command for realistic sample data.
+### 🖥️ React dashboard and API documentation
+- React 19 + Vite dashboard.
+- Overview, vehicles, charging, anomalies, AI chat, and map-oriented telemetry views.
+- OpenAPI schema and Swagger UI generated by `drf-spectacular`.
 
 ---
 
-## Architecture
+## 🧱 Technology Stack
+
+| Area | Technologies |
+|---|---|
+| Backend | Python, Django, Django REST Framework |
+| Authentication | SimpleJWT, custom user model, role-based permissions |
+| Data | PostgreSQL, Django ORM, UUID identifiers |
+| Async work | Celery, django-celery-beat |
+| Cache / broker / realtime | Redis, Django Channels, channels-redis |
+| AI | Google Gemini (`google-genai`), Pydantic, mock provider |
+| Frontend | React, Vite, Tailwind CSS, Leaflet |
+| API documentation | OpenAPI, drf-spectacular / Swagger UI |
+| Quality | pytest, pytest-django, Ruff, oxlint |
+| Local infrastructure | Docker Compose for PostgreSQL and Redis |
+
+## 🏛️ Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Client
-        UI[React + Vite dashboard]
-    end
+flowchart TB
+    UI["React Dashboard"]
+    API["Django REST API<br/>JWT · RBAC · tenant scoping"]
+    ING["Telemetry Ingestion Service"]
+    OPT["Charging Optimization Engine"]
+    ANO["Anomaly Detection Engine"]
+    AI["AI Assistant Service"]
+    CEL["Celery Worker + Beat"]
+    PG[("PostgreSQL")]
+    RD[("Redis")]
+    GEM["Gemini API"]
+    MOCK["Mock AI Provider"]
 
-    subgraph Backend["Django backend (ASGI / Daphne)"]
-        API[DRF REST API<br/>JWT + RBAC + tenant scoping]
-        WS[Channels WebSocket<br/>/ws/telemetry/]
-        ING[Telemetry ingestion service]
-        OPT[Smart charging optimizer]
-        ANO[Anomaly detection engine]
-        AI[AI assistant service]
-    end
-
-    subgraph Workers
-        CEL[Celery worker + beat]
-    end
-
-    subgraph Data
-        PG[(PostgreSQL)]
-        RD[(Redis<br/>cache · broker · channel layer)]
-    end
-
-    GEM[Google Gemini API]
-
-    UI -- REST --> API
-    UI -- WebSocket --> WS
-    API --> ING --> PG
-    ING -- broadcast --> RD --> WS
-    API --> OPT --> PG
-    API --> ANO --> PG
-    API --> AI --> GEM
-    AI -. fallback .-> MOCK[Mock provider]
+    UI -->|REST / JWT| API
+    UI <-->|WebSocket| RD
+    API --> ING
+    API --> OPT
+    API --> ANO
+    API --> AI
+    ING --> PG
+    OPT --> PG
+    ANO --> PG
+    ING --> RD
     CEL --> ING
     CEL --> ANO
     CEL <--> RD
+    AI --> GEM
+    AI -. no API key .-> MOCK
 ```
 
-**Request flow for telemetry:** device → `POST /telemetry/ingest/batch/` → validation → de-duplication → bulk insert → vehicle state reconciliation → WebSocket broadcast → dashboard map updates. Anomaly scans read the stored telemetry afterwards.
+### Main data entities
 
----
-
-## Tech stack
-
-| Layer | Technology |
+| Entity | Responsibility |
 |---|---|
-| Language | Python 3.12+ |
-| Web framework | Django 5.x, Django REST Framework |
-| Auth | SimpleJWT, custom user model, role-based permissions |
-| Database | PostgreSQL 16 (UUID primary keys, composite indexes) |
-| Cache / broker / pub-sub | Redis 7 |
-| Async jobs | Celery 5 + django-celery-beat |
-| Real-time | Django Channels, channels-redis, Daphne |
-| AI | Google Gemini (`google-genai`), Pydantic validation, mock fallback |
-| API docs | drf-spectacular (OpenAPI 3 / Swagger UI) |
-| Frontend | React 19, Vite, Tailwind CSS, Leaflet / react-leaflet, lucide-react |
-| Testing & linting | pytest, pytest-django, pytest-mock, Ruff, oxlint |
-| Infrastructure | Docker Compose (Postgres + Redis) |
+| `Organization`, `Membership`, `User` | Tenant boundaries, identity, and roles |
+| `Fleet`, `Vehicle`, `VehicleSpecification` | Fleet inventory and vehicle capabilities |
+| `TelemetryRecord` | Timestamped SOC, temperature, power, energy, location, and odometer readings |
+| `ChargingStation`, `Charger`, `TariffPeriod` | Charging infrastructure and electricity pricing |
+| `ChargingPlan`, `ChargingPlanItem` | Optimizer output and per-vehicle allocations |
+| `Anomaly`, `AnomalyResolutionLog` | Detected conditions and their lifecycle |
+| `AuditLog` | Security-relevant action history |
 
 ---
 
-## Data model
+## 🔌 API Overview
 
-| Model | Purpose |
-|---|---|
-| `Organization` | Tenant boundary |
-| `User`, `Membership` | Email login; user ↔ organization with a role |
-| `AuditLog` | Who did what, where, from which IP |
-| `Fleet` | Depot-level grouping of vehicles |
-| `VehicleSpecification` | OEM catalog: capacity, AC/DC limits, efficiency |
-| `Vehicle` | Live SOC, odometer, status, departure deadline and target SOC |
-| `TelemetryRecord` | Time-series reading; unique per `(vehicle, timestamp)` |
-| `ChargingStation`, `Charger` | Depot infrastructure (AC Level 2 / DC fast), power and efficiency |
-| `TariffPeriod` | Time-of-use price windows (supports windows that cross midnight) |
-| `ChargingSession` | Actual charging sessions |
-| `ChargingPlan`, `ChargingPlanItem` | Output of an optimizer run |
-| `Anomaly`, `AnomalyResolutionLog` | Detected issues and their lifecycle |
+Base URL: `http://127.0.0.1:8000/api/v1/`
 
----
+After starting the backend, open **[Swagger UI](http://127.0.0.1:8000/api/v1/docs/)** to inspect request schemas and try endpoints.
 
-## How the core engines work
-
-### Smart charging optimizer
-
-`apps/optimizer/engine.py` — `SmartChargingOptimizer`
-
-1. **Select candidates** — active vehicles that are `AVAILABLE` or `CHARGING`, and chargers that are `AVAILABLE` or `OCCUPIED`, all within the caller's organization.
-2. **Prioritise** — sort vehicles by departure deadline (earliest first), then by lowest current SOC.
-3. **Size the job** — `required kWh = capacity × (target SOC − current SOC) / 100`.
-4. **Evaluate every charger** — effective power is `min(charger kW, vehicle max kW)`; duration is `energy / (power × charger efficiency)`, rounded **up** to 15-minute slots.
-5. **Slide a window** across the horizon in 15-minute steps, skipping windows that collide with an existing reservation on that charger.
-6. **Price each window** against the active tariff periods (evaluated at the window midpoint, with overnight periods handled) and keep the cheapest feasible window.
-7. **Reserve** the winning slot and continue; vehicles with no feasible slot are returned in `unmet_vehicles`.
-
-It is a greedy heuristic, not a global optimum — fast, explainable and deterministic, which is why the AI assistant can describe its decisions faithfully.
-
-### Anomaly detection
-
-`apps/anomalies/detector.py` — `AnomalyDetectionEngine`
-
-| Rule | Condition | Severity |
+| Area | Endpoint | Purpose |
 |---|---|---|
-| `HIGH_BATTERY_TEMP` | latest pack temperature > 45 °C | Critical |
-| `SUDDEN_SOC_DROP` | SOC falls > 5 % within ≤ 10 min while moving < 2 km | High |
-| `STALE_TELEMETRY` | no reading for > 120 min | Medium |
-
-Each rule stores the observed value, threshold, a human-readable evidence summary and context JSON. A 60-minute cool-down prevents duplicate open incidents for the same vehicle and type.
-
-### AI assistant
-
-`apps/ai_assistant/`
-
-- `get_provider()` returns the Gemini provider when `GEMINI_API_KEY` is set, otherwise the mock provider.
-- For chat, the service builds a context object (fleet summary, unresolved anomalies, latest charging plan) and sends it with the question. This is **context-grounded generation**, not autonomous tool-calling.
-- Anomaly explanations are requested as JSON and validated by `AnomalyExplanationSchema` (summary, hypotheses, recommended actions, confidence 0–1, evidence grounding).
-
----
-
-## API reference
-
-Base path: `/api/v1/` — interactive docs at **`/api/v1/docs/`**, schema at `/api/v1/schema/`.
-
-| Area | Method & path | Description |
-|---|---|---|
-| Health | `GET /health/` | Service status |
-| Auth | `POST /auth/register/` | Create user and organization |
-| | `POST /auth/token/` | Obtain JWT pair |
-| | `POST /auth/token/refresh/` | Refresh access token |
-| | `GET /auth/profile/` | Current user and roles |
-| Fleet | `/fleets/`, `/vehicles/`, `/specifications/` | CRUD (specifications read-only), search and ordering |
+| Health | `GET /health/` | Service health check |
+| Authentication | `POST /auth/register/` | Register a user and organization |
+| Authentication | `POST /auth/token/` | Obtain JWT tokens |
+| Authentication | `POST /auth/token/refresh/` | Refresh an access token |
+| Profile | `GET /auth/profile/` | View authenticated user profile |
+| Fleet | `/fleets/`, `/vehicles/`, `/specifications/` | Manage fleet inventory; specifications are read-only |
 | Telemetry | `POST /telemetry/ingest/` | Ingest one reading |
-| | `POST /telemetry/ingest/batch/` | Ingest up to 500 readings |
-| | `GET /telemetry/history/` | Filter by `vehicle_id`, `start_time`, `end_time` |
-| Analytics | `GET /analytics/summary/` | Fleet KPIs (optional `start_time`, `end_time`) |
-| | `GET /analytics/vehicles/{id}/` | Per-vehicle efficiency |
-| Charging | `/charging/stations/`, `/chargers/`, `/tariffs/`, `/sessions/` | Infrastructure, tariffs, sessions |
-| Optimizer | `POST /optimizer/plans/generate/` | Run the scheduler and store a plan |
-| | `GET /optimizer/plans/` | List and inspect plans |
-| Anomalies | `GET /anomalies/` | Filter by `status`, `severity`, `vehicle_id` |
-| | `POST /anomalies/scan/` | Run a detection scan |
-| | `POST /anomalies/{id}/acknowledge/` · `/resolve/` | Lifecycle actions |
-| AI | `POST /ai/chat/` | Ask a question about the fleet |
-| | `GET /ai/anomalies/{id}/explain/` | Structured explanation |
-| | `GET /ai/plans/{id}/explain/` | Plain-language plan summary |
-| WebSocket | `ws://<host>/ws/telemetry/` | Live telemetry stream |
+| Telemetry | `POST /telemetry/ingest/batch/` | Ingest a batch of readings |
+| Telemetry | `GET /telemetry/history/` | Retrieve accessible telemetry history |
+| Analytics | `/analytics/summary/` | Fleet-level metrics |
+| Charging | `/charging/stations/`, `/chargers/`, `/tariffs/`, `/sessions/` | Charging infrastructure and sessions |
+| Optimization | `POST /optimizer/plans/generate/` | Generate and persist a charging plan |
+| Anomalies | `POST /anomalies/scan/` | Scan for configured anomaly rules |
+| AI | `POST /ai/chat/` | Ask a fleet-context question |
+| WebSocket | `/ws/telemetry/` | Live telemetry events (see security note below) |
 
-### Example: ingest a batch
+All protected REST endpoints require:
+
+```http
+Authorization: Bearer <ACCESS_TOKEN>
+```
+
+### Example: ingest telemetry
+
+Replace `<ACCESS_TOKEN>` and `<VEHICLE_UUID>` with values from your local demo environment.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/telemetry/ingest/batch/ \
@@ -257,7 +195,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/telemetry/ingest/batch/ \
       "vehicle_id": "<VEHICLE_UUID>",
       "timestamp": "2026-10-19T08:30:00Z",
       "soc_percent": "72.50",
-      "battery_temperature_celsius": "31.2",
+      "battery_temperature_celsius": "31.20",
       "power_kw": "-18.40",
       "cumulative_energy_kwh": "412.300",
       "speed_kmh": "46.00",
@@ -268,21 +206,22 @@ curl -X POST http://127.0.0.1:8000/api/v1/telemetry/ingest/batch/ \
   }'
 ```
 
-`power_kw` is **positive when charging** and **negative when driving**.
+`power_kw` is defined as positive for charging and negative for discharge / traction.
 
 ---
 
-## Getting started
+## 💻 Run Locally
 
 ### Prerequisites
 - Python 3.12+
-- Node.js 20+
-- Docker and Docker Compose (for PostgreSQL and Redis)
+- Node.js compatible with the installed Vite version
+- Docker + Docker Compose
+- Optional: Gemini API key for live AI responses
 
-### 1. Clone
+### 1. Get the code
 
 ```bash
-git clone https://github.com/ShashankSingh2020/VoltFleet.git
+git clone <YOUR_REPOSITORY_URL>
 cd VoltFleet
 ```
 
@@ -292,40 +231,87 @@ cd VoltFleet
 docker compose up -d
 ```
 
-This exposes Postgres on host port **5435** and Redis on host port **6380**.
+The Compose file maps PostgreSQL to host port **5435** and Redis to host port **6380**. The `.env.example` defaults use standard ports. Because `DATABASE_URL` takes precedence over the split `DB_*` settings, either update `DATABASE_URL` to use port `5435` (and the Compose credentials) or remove/comment it out and configure `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, and `DB_PORT`. Also change `REDIS_URL` and both Celery URLs to host port `6380`.
 
 ### 3. Configure environment
 
 ```bash
+# Windows PowerShell
+Copy-Item .env.example .env
+
+# macOS / Linux
 cp .env.example .env
 ```
 
-Edit `.env` so the ports match Docker Compose (see [Configuration](#configuration)). Never commit `.env`.
+For the supplied Compose ports, set the relevant values in `.env` to the equivalent of:
 
-### 4. Backend
+```dotenv
+DJANGO_SECRET_KEY=replace-with-a-long-random-development-key
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost
+
+DB_NAME=voltfleet_db
+DB_USER=voltfleet_user
+DB_PASSWORD=voltfleet_secure_password
+DB_HOST=127.0.0.1
+DB_PORT=5435
+
+REDIS_URL=redis://127.0.0.1:6380/1
+CELERY_BROKER_URL=redis://127.0.0.1:6380/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6380/0
+
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+GEMINI_API_KEY=
+GEMINI_MODEL_NAME=gemini-2.5-flash
+```
+
+Use a unique secret key and strong credentials outside local development. Never commit `.env` or real API keys.
+
+### 4. Install dependencies and migrate
+
+From the repository root:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
 
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
 cd backend
 python manage.py migrate
-python manage.py seed_fleet_demo   # demo organizations, vehicles, tariffs, telemetry
-python manage.py runserver         # Daphne serves ASGI + WebSockets
+python manage.py seed_fleet_demo
 ```
 
-Open **http://127.0.0.1:8000/api/v1/docs/** for Swagger.
-
-### 5. Background workers (optional but recommended)
+### 5. Start the backend
 
 ```bash
-cd backend
-celery -A voltfleet worker -l info
-celery -A voltfleet beat -l info   # periodic anomaly scans
+python manage.py runserver
 ```
 
-### 6. Frontend
+Then visit:
+- Dashboard: `http://localhost:5173` (after starting the frontend)
+- Swagger UI: `http://127.0.0.1:8000/api/v1/docs/`
+- Health: `http://127.0.0.1:8000/api/v1/health/`
+
+### 6. Start background workers (optional)
+
+In separate terminals, with the virtual environment active and from the `backend/` directory:
+
+```bash
+celery -A voltfleet worker -l info
+```
+
+```bash
+celery -A voltfleet beat -l info
+```
+
+### 7. Start the frontend
+
+In another terminal:
 
 ```bash
 cd frontend
@@ -333,92 +319,85 @@ npm install
 npm run dev
 ```
 
-### 7. Generate live data
+### 8. Generate demo telemetry
+
+From the `backend/` directory:
 
 ```bash
-cd backend
 python manage.py simulate_telemetry --steps 30 --interval-minutes 5
 ```
 
-### Demo login
-
-`seed_fleet_demo` creates a demo operator, `admin@voltfleet.io`. The password is printed in the seed command's source; **change it before any non-local deployment**.
+The demo seed command creates sample fleet data. Use only local demo credentials and change any seeded password before deploying anywhere public.
 
 ---
 
-## Configuration
+## 🧪 Testing and Code Quality
 
-| Variable | Description | Example |
-|---|---|---|
-| `DJANGO_SECRET_KEY` | Django secret — generate a strong value | *(random 50+ chars)* |
-| `DJANGO_DEBUG` | Debug mode | `True` locally, `False` in production |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://voltfleet_user:<password>@localhost:5435/voltfleet_db` |
-| `REDIS_URL` | Cache and channel layer | `redis://localhost:6380/1` |
-| `CELERY_BROKER_URL` | Celery broker | `redis://localhost:6380/0` |
-| `CELERY_RESULT_BACKEND` | Celery results | `redis://localhost:6380/0` |
-| `GEMINI_API_KEY` | Optional; leave blank to use the mock AI provider | — |
-| `GEMINI_MODEL_NAME` | Gemini model | `gemini-2.5-flash` |
-
----
-
-## Running tests
+Run from `backend/` after installing dependencies and configuring the database:
 
 ```bash
-cd backend
-pytest                       # whole suite
-pytest apps/optimizer        # one app
-ruff check .                 # lint
+pytest
+pytest apps/optimizer
+pytest apps/telemetry
+ruff check .
 ```
 
-The suite covers authentication, vehicles, telemetry ingestion and Celery tasks, analytics, the charging optimizer, anomaly detection and the AI assistant (using the mock provider).
+Frontend checks, from `frontend/`:
+
+```bash
+npm run lint
+npm run build
+```
+
+The test suite includes coverage for authentication, tenant isolation, telemetry ingestion, analytics, charging sessions, optimization, anomaly detection, and AI responses. **Run the commands above in your environment before treating the current repository as fully passing**; results depend on installed dependencies and configuration.
 
 ---
 
-## Project structure
+## ⚙️ Configuration Reference
 
-```
-VoltFleet/
-├── backend/
-│   ├── manage.py
-│   ├── pytest.ini
-│   ├── voltfleet/                 # settings, urls, asgi, celery
-│   └── apps/
-│       ├── authentication/        # users, organizations, roles, audit log
-│       ├── vehicles/              # fleets, specs, vehicles, seed command
-│       ├── telemetry/             # ingestion service, WebSocket consumer, Celery tasks, simulator
-│       ├── analytics/             # fleet and vehicle KPIs
-│       ├── charging/              # stations, chargers, tariffs, sessions
-│       ├── optimizer/             # smart charging engine + plans
-│       ├── anomalies/             # detection engine, lifecycle, scheduled scans
-│       └── ai_assistant/          # providers (Gemini / mock), schemas, tools
-├── frontend/
-│   └── src/
-│       ├── components/            # dashboard, vehicles, charging, anomalies, ai, map
-│       └── services/api.js
-├── docker-compose.yml
-├── requirements.txt
-└── .env.example
-```
+| Variable | Purpose |
+|---|---|
+| `DJANGO_SECRET_KEY` | Secret used by Django |
+| `DJANGO_DEBUG` | Debug mode; keep disabled in production |
+| `DJANGO_ALLOWED_HOSTS` | Allowed hostnames |
+| `DATABASE_URL` | Optional full PostgreSQL URL; takes precedence over split DB settings |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | PostgreSQL connection settings |
+| `REDIS_URL` | Redis URL used for cache / Channels |
+| `CELERY_BROKER_URL` | Celery message broker |
+| `CELERY_RESULT_BACKEND` | Celery task result storage |
+| `CORS_ALLOWED_ORIGINS` | Allowed browser origins |
+| `GEMINI_API_KEY` | Optional key for Gemini; blank selects the mock provider |
+| `GEMINI_MODEL_NAME` | Gemini model identifier |
 
 ---
 
-## Known limitations & roadmap
+## 🛣️ Roadmap
 
-Being upfront about scope:
+- [ ] Fix and test authenticated WebSocket tenant resolution.
+- [ ] Add automated CI for backend tests, linting, and frontend builds.
+- [ ] Add production-ready Dockerfiles and a full application Compose profile.
+- [ ] Strengthen production settings, secrets handling, and rate-limit policies.
+- [ ] Expand anomaly rules and add configurable thresholds.
+- [ ] Improve optimizer constraints and compare the greedy heuristic with a global optimization formulation.
+- [ ] Add dashboard screenshots and a short demo recording.
 
-- [ ] Anomaly rules are threshold-based; `HIGH_CONSUMPTION` is defined but not yet detected. Statistical or ML-based detection is a natural next step.
-- [ ] The optimizer is a greedy heuristic. A MILP/CP-SAT formulation would give globally optimal schedules and support grid power limits.
-- [ ] WebSocket streaming should be authenticated and scoped per organization before multi-tenant production use.
-- [ ] Add CI (GitHub Actions: lint + tests), production Dockerfiles and a full containerised stack.
-- [ ] Add a Celery Beat schedule for periodic anomaly scans out of the box.
-- [ ] Refresh-token handling and login UI in the frontend.
-- [ ] Screenshots and a short demo GIF.
+## 🔐 Security and Scope Notes
+
+- This repository is intended as a portfolio project, not a production EV control system.
+- Review tenant scoping, WebSocket authorization, and serializer relationship validation before deploying publicly.
+- Use environment variables for secrets; do not commit credentials, local `.env` files, or repository metadata containing sensitive history.
+- The AI assistant can produce incorrect explanations. Treat its output as advisory and verify operational decisions.
+
+## 👋 Author
+
+**Shashank Pratap Singh**
+
+[GitHub](https://github.com/ShashankSingh2020) · [LinkedIn](https://linkedin.com/in/shashank-pratap-singh-530437303) · [LeetCode](https://leetcode.com/u/Shashank_pratap_singh)
 
 ---
 
-## Author
+<div align="center">
 
-**Shashank Pratap Singh** — BTech Electronics & Communication Engineering, Bangalore Institute of Technology.
+**VoltFleet — Turning EV telemetry into actionable fleet decisions.**
 
-[GitHub](https://github.com/ShashankSingh2020) · [LinkedIn](https://linkedin.com/in/shashank-pratap-singh-530437303) · [LeetCode](https://leetcode.com/u/Shashank_pratap_singh) · singh2020shashank@gmail.com
+</div>
