@@ -9,6 +9,7 @@ from .services import TelemetryIngestionService
 from apps.authentication.utils import get_active_user_organization
 
 logger = logging.getLogger(__name__)
+MAX_BATCH_SIZE = 1000
 
 
 def _resolve_tenant_org(request, serializer):
@@ -35,6 +36,12 @@ class TelemetryBatchIngestView(APIView):
             raw_data = raw_data["events"]
         elif not isinstance(raw_data, list):
             raw_data = [raw_data]
+
+        if len(raw_data) > MAX_BATCH_SIZE:
+            return Response(
+                {"error": f"Batch size exceeds maximum limit of {MAX_BATCH_SIZE} events per request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         serializer = TelemetryIngestBatchSerializer(data=raw_data, many=True)
         serializer.is_valid(raise_exception=True)

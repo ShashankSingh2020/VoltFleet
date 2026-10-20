@@ -185,7 +185,7 @@ CELERY_TIMEZONE = "UTC"
 
 CELERY_BEAT_SCHEDULE = {
     "periodic-anomaly-scan-every-60s": {
-        "task": "apps.anomalies.tasks.scan_all_organizations_anomalies",
+        "task": "apps.anomalies.tasks.run_scheduled_anomaly_scans",
         "schedule": 60.0,
     },
 }

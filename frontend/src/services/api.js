@@ -1,44 +1,76 @@
-﻿const API_BASE = 'http://127.0.0.1:8000/api/v1';
+﻿const BASE_URL = 'http://127.0.0.1:8000/api/v1';
 
-class ApiService {
+class ApiClient {
   constructor() {
     this.token = localStorage.getItem('voltfleet_token') || null;
   }
 
   setToken(token) {
     this.token = token;
-    if (token) localStorage.setItem('voltfleet_token', token);
-    else localStorage.removeItem('voltfleet_token');
+    if (token) {
+      localStorage.setItem('voltfleet_token', token);
+    } else {
+      localStorage.removeItem('voltfleet_token');
+    }
   }
 
-  async login(email = 'admin@voltfleet.io', password = 'Admin@123456') {
+  async login(email, password) {
+    if (!email || !password) {
+      // Re-use stored token if already authenticated
+      if (this.token) return { access: this.token };
+      return null;
+    }
+
     try {
-      const res = await fetch(`${API_BASE}/auth/token/`, {
+      const response = await fetch(`${BASE_URL}/auth/token/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) throw new Error('Authentication failed');
-      const data = await res.json();
+
+      if (!response.ok) {
+        throw new Error('Authentication failed');
+      }
+
+      const data = await response.json();
       this.setToken(data.access);
       return data;
     } catch (err) {
-      console.warn('Backend login fallback to mock:', err.message);
-      return null;
+      console.error('Login error:', err);
+      throw err;
     }
   }
 
-  async fetchWithAuth(url, options = {}) {
+  logout() {
+    this.setToken(null);
+  }
+
+  async fetchWithAuth(endpoint, options = {}) {
     const headers = {
       'Content-Type': 'application/json',
-      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-      ...(options.headers || {}),
+      ...options.headers,
     };
-    const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
-    if (!res.ok) {
-      const errorBody = await res.text();
-      throw new Error(`API Error [${res.status}]: ${errorBody}`);
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
     }
+
+    const res = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    if (res.status === 401) {
+      this.logout();
+      window.dispatchEvent(new Event('voltfleet_auth_expired'));
+      throw new Error('Session expired');
+    }
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || errData.error || `HTTP error ${res.status}`);
+    }
+
     return res.json();
   }
 
@@ -50,56 +82,27 @@ class ApiService {
     return this.fetchWithAuth('/vehicles/');
   }
 
-  postTelemetry(payload) {
-    return this.fetchWithAuth('/telemetry/ingest/', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
-
   getAnomalies() {
     return this.fetchWithAuth('/anomalies/');
-  }
-
-  acknowledgeAnomaly(id, notes) {
-    return this.fetchWithAuth(`/anomalies/${id}/acknowledge/`, {
-      method: 'POST',
-      body: JSON.stringify({ notes }),
-    });
-  }
-
-  resolveAnomaly(id, notes) {
-    return this.fetchWithAuth(`/anomalies/${id}/resolve/`, {
-      method: 'POST',
-      body: JSON.stringify({ notes }),
-    });
   }
 
   getChargingPlans() {
     return this.fetchWithAuth('/optimizer/plans/');
   }
 
-  triggerOptimization(horizonHours = 8) {
-    return this.fetchWithAuth('/optimizer/plans/optimize/', {
+  ingestTelemetry(events) {
+    return this.fetchWithAuth('/telemetry/ingest/batch/', {
       method: 'POST',
-      body: JSON.stringify({ horizon_hours: horizonHours }),
+      body: JSON.stringify({ events }),
     });
   }
 
-  askAIChat(query) {
+  sendAiChat(query) {
     return this.fetchWithAuth('/ai/chat/', {
       method: 'POST',
       body: JSON.stringify({ query }),
     });
   }
-
-  explainAnomaly(id) {
-    return this.fetchWithAuth(`/ai/anomalies/${id}/explain/`);
-  }
-
-  explainPlan(planId) {
-    return this.fetchWithAuth(`/ai/plans/${planId}/explain/`);
-  }
 }
 
-export const api = new ApiService();
+export const api = new ApiClient();
