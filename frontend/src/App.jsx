@@ -69,7 +69,7 @@ export default function App() {
 
   const fillDemoCredentials = () => {
     setLoginEmail('admin@voltfleet.io');
-    setLoginPassword('Password123!');
+    setLoginPassword('Admin@123456');
   };
 
   useEffect(() => {
@@ -189,7 +189,7 @@ export default function App() {
               onClick={fillDemoCredentials}
               className="text-xs text-emerald-400 hover:text-emerald-300 font-mono"
             >
-              Fill Demo Credentials (admin@voltfleet.io)
+              Fill Demo Credentials (admin@voltfleet.io / Admin@123456)
             </button>
           </div>
         </div>

@@ -16,7 +16,6 @@ class ApiClient {
 
   async login(email, password) {
     if (!email || !password) {
-      // Re-use stored token if already authenticated
       if (this.token) return { access: this.token };
       return null;
     }
@@ -74,6 +73,7 @@ class ApiClient {
     return res.json();
   }
 
+  // Core Fleet & Analytics
   getFleetSummary() {
     return this.fetchWithAuth('/analytics/summary/');
   }
@@ -90,6 +90,14 @@ class ApiClient {
     return this.fetchWithAuth('/optimizer/plans/');
   }
 
+  // Telemetry Ingestion
+  postTelemetry(payload) {
+    return this.fetchWithAuth('/telemetry/ingest/', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   ingestTelemetry(events) {
     return this.fetchWithAuth('/telemetry/ingest/batch/', {
       method: 'POST',
@@ -97,11 +105,47 @@ class ApiClient {
     });
   }
 
-  sendAiChat(query) {
+  // Anomaly Actions
+  acknowledgeAnomaly(id, notes = '') {
+    return this.fetchWithAuth(`/anomalies/${id}/acknowledge/`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    });
+  }
+
+  resolveAnomaly(id, notes = '') {
+    return this.fetchWithAuth(`/anomalies/${id}/resolve/`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    });
+  }
+
+  // Optimizer (using correct /generate/ route)
+  triggerOptimization(horizonHours = 8) {
+    return this.fetchWithAuth('/optimizer/plans/generate/', {
+      method: 'POST',
+      body: JSON.stringify({ horizon_hours: horizonHours }),
+    });
+  }
+
+  // AI Assistant Copilot & Diagnostics
+  askAIChat(query) {
     return this.fetchWithAuth('/ai/chat/', {
       method: 'POST',
       body: JSON.stringify({ query }),
     });
+  }
+
+  sendAiChat(query) {
+    return this.askAIChat(query);
+  }
+
+  explainAnomaly(id) {
+    return this.fetchWithAuth(`/ai/anomalies/${id}/explain/`);
+  }
+
+  explainPlan(planId) {
+    return this.fetchWithAuth(`/ai/plans/${planId}/explain/`);
   }
 }
 
