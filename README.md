@@ -62,7 +62,7 @@ VoltFleet addresses all three in one platform, with strict per-organization data
 - Search, ordering and pagination on all list endpoints.
 
 ### 📡 Telemetry ingestion
-- Single-event and **batch ingestion**; the batch endpoint accepts either a JSON array or `{"events": [...]}`.
+- Single-event and **batch ingestion**; the batch endpoint accepts either a JSON array or `{"events": [...]}` and rejects requests of more than **1,000 events** with `400`.
 - **Tolerant of partial payloads**: temperature, GPS, speed, power, odometer and energy are optional; missing values are stored as `NULL` or zero instead of failing the request.
 - **Strict range validation**: SOC must be 0–100 %, battery temperature −40 to 120 °C, latitude ±90, longitude ±180, and speed, odometer and energy cannot be negative; invalid events return `400`.
 - **Duplicate-safe**: duplicates are removed inside a batch, checked against existing rows, and backed by a `UNIQUE(vehicle, timestamp)` database constraint. The response reports `accepted` and `ignored_duplicates`.
@@ -95,7 +95,10 @@ VoltFleet addresses all three in one platform, with strict per-organization data
 - Chat is **rate-limited** (15 requests/minute per user) and error responses never expose internal exception text.
 
 ### 🖥️ React dashboard
+- **Operator login screen** with JWT session handling: the token is stored in the browser, attached to every request, and an expired session (`401`) signs the user out automatically. A **Sign Out** control is in the header.
 - Tabs for Overview, Vehicles, Charging, Anomalies, AI Chat and a Leaflet **live fleet map**.
+- The live map connects to the **tenant-scoped WebSocket** using the user's JWT; the header shows the connection state.
+- If the backend is unreachable, a banner warns that a local simulated demo dataset is being shown.
 - Built with React 19, Vite and Tailwind CSS.
 
 ### 📚 Developer experience
@@ -230,7 +233,7 @@ Each rule stores the observed value, threshold, a human-readable evidence summar
 
 | Concern | How it is handled |
 |---|---|
-| Authentication | JWT bearer tokens; 60-minute access lifetime |
+| Authentication | JWT bearer tokens; 60-minute access lifetime; no hardcoded credentials in the frontend |
 | Authorization | Role-based permission classes plus tenant-scoped querysets |
 | Cross-tenant writes | Ingestion only accepts vehicles belonging to the caller's organization |
 | Cross-tenant reads | Telemetry history, AI context, anomaly and plan lookups are filtered by organization |
@@ -257,12 +260,12 @@ Base path: `/api/v1/` — interactive docs at **`/api/v1/docs/`**, schema at `/a
 | | `GET /auth/profile/` | Current user and roles |
 | Fleet | `/fleets/`, `/vehicles/`, `/specifications/` | CRUD (specifications read-only), search and ordering |
 | Telemetry | `POST /telemetry/ingest/` | Ingest one reading |
-| | `POST /telemetry/ingest/batch/` | Ingest many readings (array or `{"events": [...]}`) |
+| | `POST /telemetry/ingest/batch/` | Ingest up to 1,000 readings (array or `{"events": [...]}`) |
 | | `GET /telemetry/history/` | Tenant-scoped history; filter by `vehicle_id`, `start_time`, `end_time` |
 | Analytics | `GET /analytics/summary/` | Fleet KPIs (optional `start_time`, `end_time`) |
 | | `GET /analytics/vehicles/{id}/` | Per-vehicle efficiency |
 | Charging | `/charging/stations/`, `/chargers/`, `/tariffs/`, `/sessions/` | Infrastructure, tariffs, sessions |
-| Optimizer | `POST /optimizer/plans/generate/` | Run the scheduler and store a plan |
+| Optimizer | `POST /optimizer/plans/generate/` | Run the scheduler for a time window (`horizon_start`, `horizon_end`) and store a plan |
 | | `GET /optimizer/plans/` | List and inspect plans |
 | Anomalies | `GET /anomalies/` | Filter by `status`, `severity`, `vehicle_id` |
 | | `POST /anomalies/scan/` | Run a detection scan |
@@ -295,6 +298,21 @@ curl -X POST http://127.0.0.1:8000/api/v1/telemetry/ingest/batch/ \
 ```
 
 `power_kw` is **positive when charging** and **negative when driving**. Only `vehicle_id`, `timestamp` and `soc_percent` are required.
+
+### Example: generate a charging plan
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/optimizer/plans/generate/ \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Overnight charging",
+    "horizon_start": "2026-10-20T18:00:00Z",
+    "horizon_end": "2026-10-21T06:00:00Z"
+  }'
+```
+
+`vehicle_ids` and `charger_ids` are optional filters; `horizon_end` must be after `horizon_start`. The response lists scheduled vehicles, total energy, estimated cost and any vehicles that could not be scheduled.
 
 ### Example: listen to live telemetry
 
@@ -377,7 +395,7 @@ python manage.py simulate_telemetry --steps 30 --interval-minutes 5
 
 ### Demo login
 
-`seed_fleet_demo` creates a demo organization admin, `admin@voltfleet.io`. Credentials are defined in the seed command for local demos only — **change them before any non-local deployment**.
+`seed_fleet_demo` creates a demo organization admin, `admin@voltfleet.io`. Sign in through the dashboard's login screen (it has a **Fill Demo Credentials** shortcut for local use). The demo password is defined in the seed command for local demos only — **change it before any non-local deployment**.
 
 ---
 
@@ -446,10 +464,10 @@ VoltFleet/
 
 Being upfront about scope:
 
-- [ ] The frontend still auto-logs in with demo credentials and does not yet pass the JWT to the WebSocket; a proper login screen and token handling are planned.
+- [ ] The frontend stores the access token in `localStorage` and has no refresh-token flow, so users must sign in again after 60 minutes. Moving to refresh tokens (or `httpOnly` cookies) is planned.
+- [ ] The login screen shows demo credentials for local convenience; hide them outside development builds (for example behind `import.meta.env.DEV`).
 - [ ] Anomaly rules are threshold-based; `HIGH_CONSUMPTION` is defined but not yet detected. Statistical or ML-based detection is a natural next step.
 - [ ] The optimizer is a greedy heuristic. A MILP/CP-SAT formulation would give globally optimal schedules and support grid power limits.
-- [ ] Add a per-request batch size cap (for example 500 events) to the ingestion endpoint.
 - [ ] Add CI (GitHub Actions: lint + tests) and production Dockerfiles for a fully containerised stack.
 - [ ] Add screenshots and a short demo GIF to `docs/`.
 
