@@ -9,7 +9,7 @@ A multi-tenant backend and dashboard for operating electric-vehicle fleets. Volt
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![Celery](https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-26%20pytest-0A9EDC?logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-27%20pytest-0A9EDC?logo=pytest&logoColor=white)
 
 ---
 
@@ -50,6 +50,7 @@ VoltFleet addresses all three in one platform, with strict per-organization data
 - Custom email-based `User` model with **JWT authentication** (SimpleJWT: 60-minute access tokens, 7-day refresh tokens).
 - `Organization` → `Membership` structure with four roles: **Platform Admin, Org Admin, Fleet Operator, Analyst**.
 - Reusable `TenantScopedQuerysetMixin` that restricts querysets to the caller's organization; telemetry history is scoped through `vehicle__organization`.
+- A single helper, `get_active_user_organization()`, resolves a user's organization from their memberships and is shared by the REST views and the WebSocket consumer.
 - Role-based DRF permission classes (`IsPlatformAdmin`, `IsOrgAdmin`, `IsFleetOperator`).
 - `AuditLog` model for security-relevant actions.
 - Dedicated **tenant-isolation tests** proving one organization cannot read or write another's telemetry.
@@ -63,6 +64,7 @@ VoltFleet addresses all three in one platform, with strict per-organization data
 ### 📡 Telemetry ingestion
 - Single-event and **batch ingestion**; the batch endpoint accepts either a JSON array or `{"events": [...]}`.
 - **Tolerant of partial payloads**: temperature, GPS, speed, power, odometer and energy are optional; missing values are stored as `NULL` or zero instead of failing the request.
+- **Strict range validation**: SOC must be 0–100 %, battery temperature −40 to 120 °C, latitude ±90, longitude ±180, and speed, odometer and energy cannot be negative; invalid events return `400`.
 - **Duplicate-safe**: duplicates are removed inside a batch, checked against existing rows, and backed by a `UNIQUE(vehicle, timestamp)` database constraint. The response reports `accepted` and `ignored_duplicates`.
 - **Cross-tenant spoofing is rejected**: readings for vehicles outside the caller's organization are silently dropped.
 - Inside one transaction the vehicle's live state is reconciled with its newest reading: SOC, odometer (never decreases) and status (`IN_TRANSIT` when moving).
@@ -233,6 +235,8 @@ Each rule stores the observed value, threshold, a human-readable evidence summar
 | Cross-tenant writes | Ingestion only accepts vehicles belonging to the caller's organization |
 | Cross-tenant reads | Telemetry history, AI context, anomaly and plan lookups are filtered by organization |
 | Real-time isolation | WebSocket connections require a valid JWT and join only `fleet_telemetry_{org_id}` |
+| Input validation | Range checks on SOC, temperature, GPS, speed, odometer and energy at the API boundary |
+| Safe defaults | `DJANGO_DEBUG` defaults to `False`; set it to `True` explicitly for local development |
 | CORS | Explicit allow-list from `CORS_ALLOWED_ORIGINS` (no wildcard) |
 | Abuse protection | DRF throttling: 100/min anonymous, 1000/min authenticated, 15/min for AI chat |
 | Error hygiene | AI endpoints return generic messages and log details server-side |
@@ -331,7 +335,7 @@ This exposes Postgres on host port **5435** and Redis on host port **6380**.
 cp .env.example .env
 ```
 
-Make sure the ports in `.env` match Docker Compose (see [Configuration](#configuration)). Never commit `.env`.
+`.env.example` uses the native ports (Postgres `5432`, Redis `6379`). If you use the bundled Docker Compose file, change them to **5435** and **6380**. Never commit `.env`.
 
 ### 4. Backend
 
@@ -382,14 +386,14 @@ python manage.py simulate_telemetry --steps 30 --interval-minutes 5
 | Variable | Description | Example |
 |---|---|---|
 | `DJANGO_SECRET_KEY` | Django secret — generate a strong value | *(random 50+ chars)* |
-| `DJANGO_DEBUG` | Debug mode | `True` locally, `False` in production |
+| `DJANGO_DEBUG` | Debug mode (defaults to `False`) | `True` locally, `False` in production |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts | `localhost,127.0.0.1` |
-| `DATABASE_URL` | Full PostgreSQL URL (takes priority) | `postgres://voltfleet_user:<password>@localhost:5435/voltfleet_db` |
-| `DB_NAME` `DB_USER` `DB_PASSWORD` `DB_HOST` `DB_PORT` | Used only if `DATABASE_URL` is not set | `voltfleet_db`, `voltfleet_user`, …, `localhost`, `5435` |
-| `REDIS_URL` | Cache and channel layer | `redis://localhost:6380/1` |
+| `DATABASE_URL` | Full PostgreSQL URL (takes priority) | `postgres://postgres:<password>@localhost:5435/voltfleet` |
+| `DB_NAME` `DB_USER` `DB_PASSWORD` `DB_HOST` `DB_PORT` | Used only if `DATABASE_URL` is not set | `voltfleet`, `postgres`, …, `localhost`, `5435` |
+| `REDIS_URL` | Redis **base URL without a database number**; the app uses `/1` for the cache and `/2` for Channels | `redis://localhost:6380` |
 | `CELERY_BROKER_URL` | Celery broker | `redis://localhost:6380/0` |
 | `CELERY_RESULT_BACKEND` | Celery results | `redis://localhost:6380/0` |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated frontend origins | `http://localhost:5173,http://localhost:3000` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated frontend origins | `http://localhost:5173,http://127.0.0.1:5173` |
 | `GEMINI_API_KEY` | Optional; leave blank to use the mock AI provider | — |
 | `GEMINI_MODEL_NAME` | Gemini model | `gemini-2.5-flash` |
 
@@ -401,7 +405,7 @@ Redis must be running (`docker compose up -d`), because API throttling uses the 
 
 ```bash
 cd backend
-pytest                       # whole suite (26 tests)
+pytest                       # whole suite (27 tests)
 pytest apps/telemetry        # one app, including tenant-isolation tests
 ruff check .                 # lint
 ```
@@ -445,7 +449,7 @@ Being upfront about scope:
 - [ ] The frontend still auto-logs in with demo credentials and does not yet pass the JWT to the WebSocket; a proper login screen and token handling are planned.
 - [ ] Anomaly rules are threshold-based; `HIGH_CONSUMPTION` is defined but not yet detected. Statistical or ML-based detection is a natural next step.
 - [ ] The optimizer is a greedy heuristic. A MILP/CP-SAT formulation would give globally optimal schedules and support grid power limits.
-- [ ] Input range validation (SOC 0–100, GPS bounds) and a per-request batch size cap should be re-added to the ingestion serializer.
+- [ ] Add a per-request batch size cap (for example 500 events) to the ingestion endpoint.
 - [ ] Add CI (GitHub Actions: lint + tests) and production Dockerfiles for a fully containerised stack.
 - [ ] Add screenshots and a short demo GIF to `docs/`.
 
