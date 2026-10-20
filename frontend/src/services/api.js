@@ -120,11 +120,17 @@ class ApiClient {
     });
   }
 
-  // Optimizer (using correct /generate/ route)
+  // Optimizer (supplies horizon_start and horizon_end ISO strings)
   triggerOptimization(horizonHours = 8) {
+    const start = new Date();
+    const end = new Date(start.getTime() + horizonHours * 60 * 60 * 1000);
     return this.fetchWithAuth('/optimizer/plans/generate/', {
       method: 'POST',
-      body: JSON.stringify({ horizon_hours: horizonHours }),
+      body: JSON.stringify({
+        title: 'Smart Charging Optimization Run',
+        horizon_start: start.toISOString(),
+        horizon_end: end.toISOString(),
+      }),
     });
   }
 
